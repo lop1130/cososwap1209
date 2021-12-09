@@ -160,7 +160,6 @@ interface IERC721Enumerable {
     function tokenURI(uint256 tokenId) external view returns (string memory);
 }
 
-
 contract nftOrderPool is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using Address for address;
@@ -208,35 +207,19 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
     event swapEvent(uint256 _orderId, IERC721Enumerable nftToken, uint256 tokenId, address erc20Token, address owner, address buyer, uint256 price, uint256 fee, uint256 toUser);
 
     constructor(IERC20 _ETH) public {
+        require(address(_ETH) != address(0), "e01");
         devAddress = msg.sender;
         ETH = _ETH;
     }
 
-    function setDevAddress(address payable _devAddress) public {
-        require(msg.sender == devAddress || msg.sender == owner(), 'p0');
+    function setDevAddress(address payable _devAddress) external {
+        require(_devAddress != address(0), "e02");
+        require(msg.sender == devAddress || msg.sender == owner(), "e03");
         devAddress = _devAddress;
     }
-
-    function setSwapFee(uint256 _fee) public onlyOwner {
-        swapFee = _fee;
-    }
-
-    function getTokenIdSaleStatus(IERC721Enumerable _nftToken, uint256 _tokenId) public view returns (bool, uint256, massInfoItem memory) {
-        if (nftTokenLastOrderIdList[_nftToken][_tokenId] > 0) {
-            (orderItem memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2,string memory tokenURI2) = getTokenInfoByIndex(nftTokenLastOrderIdList[_nftToken][_tokenId]);
-            return (orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].orderStatus, nftTokenLastOrderIdList[_nftToken][_tokenId], massInfoItem(orderItem2, name2, symbol2, decimals2, price2, tokenURI2));
-        } else {
-            (orderItem memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2,string memory tokenURI2) = getTokenInfoByIndex(0);
-            if (orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].nftToken == _nftToken && orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].tokenId == _tokenId) {
-                return (orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].orderStatus, nftTokenLastOrderIdList[_nftToken][_tokenId], massInfoItem(orderItem2, name2, symbol2, decimals2, price2, tokenURI2));
-            } else {
-                return (false, 0, massInfoItem(orderItem2, name2, symbol2, decimals2, price2, tokenURI2));
-            }
-        }
-    }
-
-    function createNftOrder(IERC721Enumerable _nftToken, uint256 _tokenId, address _erc20Token, uint256 _price, string memory _orderMd5, uint256 _time) public nonReentrant {
-        require(orderMd5StatusList[_orderMd5] == false, 'm0');
+    
+    function createNftOrder(IERC721Enumerable _nftToken, uint256 _tokenId, address _erc20Token, uint256 _price, string memory _orderMd5, uint256 _time) external nonReentrant {
+        require(orderMd5StatusList[_orderMd5] == false, "e04");
         _nftToken.transferFrom(msg.sender, address(this), _tokenId);
         orderItemInfo[orderNum] = orderItem(orderNum, msg.sender, _nftToken, _tokenId, _erc20Token, _price, true, _orderMd5, _time, block.number, _nftToken.name(), _nftToken.symbol(), _nftToken.tokenURI(_tokenId));
         emit createNftOrderEvent(orderNum, msg.sender, _nftToken, _tokenId, _erc20Token, _price, true, _orderMd5, _time, block.number);
@@ -249,8 +232,8 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
         orderMd5StatusList[_orderMd5] = true;
     }
 
-    function createNftOrderWithEth(IERC721Enumerable _nftToken, uint256 _tokenId, uint256 _price, string memory _orderMd5, uint256 _time) public nonReentrant {
-        require(orderMd5StatusList[_orderMd5] == false, 'm0');
+    function createNftOrderWithEth(IERC721Enumerable _nftToken, uint256 _tokenId, uint256 _price, string memory _orderMd5, uint256 _time) external nonReentrant {
+        require(orderMd5StatusList[_orderMd5] == false, "e05");
         _nftToken.transferFrom(msg.sender, address(this), _tokenId);
         orderItemInfo[orderNum] = orderItem(orderNum, msg.sender, _nftToken, _tokenId, address(0), _price, true, _orderMd5, _time, block.number, _nftToken.name(), _nftToken.symbol(), _nftToken.tokenURI(_tokenId));
         emit createNftOrderEvent(orderNum, msg.sender, _nftToken, _tokenId, address(0), _price, true, _orderMd5, _time, block.number);
@@ -263,19 +246,18 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
         orderMd5StatusList[_orderMd5] = true;
     }
 
-    function widthDraw(uint256 _orderId) public nonReentrant {
-        require(orderStatusList[_orderId] == true, 'f0');
-        require(orderItemInfo[_orderId].owner == msg.sender, 'f1');
+    function widthDraw(uint256 _orderId) external nonReentrant {
+        require(orderStatusList[_orderId] == true, "e06");
+        require(orderItemInfo[_orderId].owner == msg.sender, "e07");
         orderItemInfo[_orderId].nftToken.transferFrom(address(this), msg.sender, orderItemInfo[_orderId].tokenId);
         orderItemInfo[_orderId].orderStatus = false;
         orderStatusList[_orderId] = false;
         emit widthDrawEvent(_orderId, msg.sender, orderItemInfo[_orderId].nftToken, orderItemInfo[_orderId].tokenId);
     }
 
-    function swap(uint256 _orderId) public nonReentrant {
-        require(orderStatusList[_orderId] == true, 'k0');
-        //orderItem memory _orderItem = orderItemInfo[_orderId];
-        require(IERC20(orderItemInfo[_orderId].erc20Token).balanceOf(msg.sender) >= orderItemInfo[_orderId].price, 'k1');
+    function swap(uint256 _orderId) external nonReentrant {
+        require(orderStatusList[_orderId] == true, "e08");
+        require(IERC20(orderItemInfo[_orderId].erc20Token).balanceOf(msg.sender) >= orderItemInfo[_orderId].price, "e09");
         uint256 fee = orderItemInfo[_orderId].price.mul(swapFee).div(100);
         uint256 toUser = orderItemInfo[_orderId].price.sub(fee);
         IERC20(orderItemInfo[_orderId].erc20Token).safeTransferFrom(msg.sender, orderItemInfo[_orderId].owner, toUser);
@@ -286,9 +268,9 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
         emit swapEvent(_orderId, orderItemInfo[_orderId].nftToken, orderItemInfo[_orderId].tokenId, orderItemInfo[_orderId].erc20Token, orderItemInfo[_orderId].owner, msg.sender, orderItemInfo[_orderId].price, fee, toUser);
     }
 
-    function swapWithEth(uint256 _orderId) public payable nonReentrant {
-        require(orderStatusList[_orderId] == true, 'k0');
-        require(msg.value >= orderItemInfo[_orderId].price, 'k1');
+    function swapWithEth(uint256 _orderId) external payable nonReentrant {
+        require(orderStatusList[_orderId] == true, "e10");
+        require(msg.value == orderItemInfo[_orderId].price, "e11");
         uint256 fee = orderItemInfo[_orderId].price.mul(swapFee).div(100);
         uint256 toUser = orderItemInfo[_orderId].price.sub(fee);
         orderItemInfo[_orderId].owner.transfer(toUser);
@@ -299,10 +281,24 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
         emit swapEvent(_orderId, orderItemInfo[_orderId].nftToken, orderItemInfo[_orderId].tokenId, orderItemInfo[_orderId].erc20Token, orderItemInfo[_orderId].owner, msg.sender, orderItemInfo[_orderId].price, fee, toUser);
     }
 
-    function getWrongTokens(IERC20 _token) public onlyOwner {
+    function getWrongTokens(IERC20 _token) external onlyOwner {
         uint256 amount = _token.balanceOf(address(this));
-        require(amount > 0, 'e1');
+        require(amount > 0, "e12");
         _token.safeTransfer(msg.sender, amount);
+    }
+
+    function getTokenIdSaleStatus(IERC721Enumerable _nftToken, uint256 _tokenId) external view returns (bool, uint256, massInfoItem memory) {
+        if (nftTokenLastOrderIdList[_nftToken][_tokenId] > 0) {
+            (orderItem memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2,string memory tokenURI2) = getTokenInfoByIndex(nftTokenLastOrderIdList[_nftToken][_tokenId]);
+            return (orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].orderStatus, nftTokenLastOrderIdList[_nftToken][_tokenId], massInfoItem(orderItem2, name2, symbol2, decimals2, price2, tokenURI2));
+        } else {
+            (orderItem memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2,string memory tokenURI2) = getTokenInfoByIndex(0);
+            if (orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].nftToken == _nftToken && orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].tokenId == _tokenId) {
+                return (orderItemInfo[nftTokenLastOrderIdList[_nftToken][_tokenId]].orderStatus, nftTokenLastOrderIdList[_nftToken][_tokenId], massInfoItem(orderItem2, name2, symbol2, decimals2, price2, tokenURI2));
+            } else {
+                return (false, 0, massInfoItem(orderItem2, name2, symbol2, decimals2, price2, tokenURI2));
+            }
+        }
     }
 
     function getStatusOkInfoList(uint256[] memory _orderIdList) public view returns (massInfoItem[] memory) {
@@ -357,7 +353,7 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
         tokenURI2 = orderItem2.nftToken.tokenURI(orderItem2.tokenId);
     }
 
-    function getTokenInfoByOrderMd5(string memory _orderMd5) public view returns (orderItem memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2){
+    function getTokenInfoByOrderMd5(string memory _orderMd5) external view returns (orderItem memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2){
         orderItem2 = orderItemInfo[orderMd5List[_orderMd5]];
         if (orderItem2.erc20Token == address(0)) {
             name2 = ETH.name();
@@ -371,13 +367,13 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
         price2 = orderItem2.price.mul(1e18).div(10 ** decimals2);
     }
 
-    function getUserOkOrderIdList(address _user) public view returns (uint256[] memory) {
+    function getUserOkOrderIdList(address _user) external view returns (uint256[] memory) {
         uint256[] memory userOrderIdList = userOrderList[_user];
         uint256[] memory userOkOrderIdList = getStatusOkIdList(userOrderIdList);
         return userOkOrderIdList;
     }
 
-    function getUserOkOrderInfoList(address _user) public view returns (massInfoItem[] memory) {
+    function getUserOkOrderInfoList(address _user) external view returns (massInfoItem[] memory) {
         uint256[] memory userOrderIdList = userOrderList[_user];
         massInfoItem[] memory userOkOrderIdList = getStatusOkInfoList(userOrderIdList);
         return userOkOrderIdList;
