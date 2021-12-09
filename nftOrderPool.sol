@@ -167,7 +167,7 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
     address payable public devAddress;
     IERC20 public ETH;
     uint256 public orderNum = 0;
-    uint256 public swapFee = 10;
+    uint256 public swapFee = 3;
 
     struct orderItem {
         uint256 orderId;
