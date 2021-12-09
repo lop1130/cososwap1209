@@ -162,31 +162,32 @@ interface IERC721Enumerable {
     function tokenURI(uint256 tokenId) external view returns (string memory);
 
     function mintForMiner(address _to) external returns (bool, uint256);
-}
 
-interface IWHT {
-    function deposit() external payable;
-
-    function transfer(address to, uint value) external returns (bool);
-
-    function withdraw(uint) external;
+    function MinerList(address _address) external returns (bool);
 }
 
 contract IGOPool is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using Address for address;
     using SafeERC20 for IERC20;
-    address payable public devAddress;
+    address payable public feeAddress;
+    address payable public teamAddress;
     address public IGOPoolFactory;
-    IERC20 public ETH;
     mapping(address => mapping(uint256 => bool)) public CanBuyBackList;
     mapping(address => uint256[]) public UserIgoTokenIdList;
     mapping(address => uint256) public UserIgoTokenIdListNum;
-    // mapping(uint256 => tokenIdInfo) public TokenIdStatusList;
-    // mapping(uint256 => bool) public TokenIdMintStatusList;
-    // mapping(uint256 => bool) public TokenIdBuybackStatusList;
-    // mapping(uint256 => bool) public TokenIdSwapStatusStatusList;
     mapping(uint256 => tokenIdInfo) public TokenIdSwapStatusStatusList;
+    mapping(address => uint256[]) public userStakingTokenIdList;
+    mapping(address => uint256) public userStakingNumList;
+    mapping(address => bool) public whiteList;
+
+    struct nftInfo {
+        string name;
+        string symbol;
+        string tokenURI;
+        address ownerOf;
+        tokenIdInfo statusList;
+    }
 
     struct tokenIdInfo {
         bool mintStatus;
@@ -196,199 +197,238 @@ contract IGOPool is Ownable, ReentrancyGuard {
 
     struct orderItem_1 {
         uint256 orderId;
-        address payable owner;
         IERC721Enumerable nftToken;
-        uint256 igoAmount;
+        uint256 igoTotalAmount;
         address erc20Token;
         uint256 price;
         bool orderStatus;
-        string orderMd5;
-        uint256 hasigoAmount;
+        uint256 igoOkAmount;
         uint256 startBlock;
         uint256 endBlock;
+        uint256 cosoQuote;
     }
 
     struct orderItem_2 {
         IERC20 swapToken;
         uint256 swapPrice;
-        uint256 GetRewardBlockNum;
-        uint256 BuyBackNum;
+        uint256 buyBackEndBlock;
+        uint256 buyBackNum;
         uint256 swapFee;
-        uint256 maxIgoAmount;
+        uint256 igoMaxAmount;
+        address blackHoleAddress;
+        IERC721Enumerable CosoNFT;
+        bool useStakingCoso;
+        bool useWhiteList;
+        IERC20 ETH;
     }
 
-    orderItem_1 public OrderDetail1;
-    orderItem_2 public OrderDetail2;
+    orderItem_1 public fk1;
+    orderItem_2 public fk2;
 
-    constructor(address _devAddress, address _owner, IERC20 _ETH, uint256 orderId, IERC721Enumerable _nftToken, uint256 _igoAmount, address _erc20Token, uint256 _price, string memory _orderMd5, uint256 _startBlock, uint256 _endBlock) public {
+    constructor(IERC721Enumerable _Coso, address _feeAddress, address _teamAddress, IERC20 _ETH, uint256 orderId, IERC721Enumerable _nftToken, uint256 _igoAmount, address _erc20Token, uint256 _price, uint256 _swapRate) public {
         IGOPoolFactory = msg.sender;
-        devAddress = payable(_devAddress);
-        ETH = _ETH;
-        OrderDetail1.orderId = orderId;
-        OrderDetail1.owner = payable(_owner);
-        OrderDetail1.nftToken = _nftToken;
-        OrderDetail1.igoAmount = _igoAmount;
-        OrderDetail1.erc20Token = _erc20Token;
-        OrderDetail1.price = _price;
-        OrderDetail1.orderStatus = true;
-        OrderDetail1.orderMd5 = _orderMd5;
-        OrderDetail1.hasigoAmount = 0;
-        OrderDetail1.startBlock = _startBlock;
-        OrderDetail1.endBlock = _endBlock;
-        OrderDetail2.swapFee = 5;
-        OrderDetail2.maxIgoAmount = 0;
+        feeAddress = payable(_feeAddress);
+        teamAddress = payable(_teamAddress);
+        fk2.CosoNFT = _Coso;
+        fk2.ETH = _ETH;
+        fk1.cosoQuote = 1;
+        fk1.orderId = orderId;
+        fk1.orderStatus = true;
+        fk1.nftToken = _nftToken;
+        fk1.igoTotalAmount = _igoAmount;
+        fk1.erc20Token = _erc20Token;
+        fk1.price = _price;
+        fk1.igoOkAmount = 0;
+        fk2.swapFee = _swapRate;
+        fk2.igoMaxAmount = 0;
+        fk2.blackHoleAddress = 0x000000000000000000000000000000000000dEaD;
     }
 
-    function setSwapTokenList(IERC20 _swapToken, uint256 _swapPrice) public onlyOwner {
-        OrderDetail2.swapToken = _swapToken;
-        OrderDetail2.swapPrice = _swapPrice;
+    modifier onlyIGOPoolFactory() {
+        require(msg.sender == IGOPoolFactory, "e00");
+        _;
     }
 
-    function setDevAddress(address payable _devAddress) public {
-        require(msg.sender == IGOPoolFactory, "e001");
-        devAddress = _devAddress;
+    modifier onlyBeforeStartBlock() {
+        require(block.number < fk1.startBlock || fk1.startBlock == 0, "e01");
+        _;
     }
 
-    function setSwapFee(uint256 _fee) public {
-        require(msg.sender == IGOPoolFactory, "e002");
-        OrderDetail2.swapFee = _fee;
-    }
-
-    function setGetRewardBlockNum(uint256 _blockNum) public onlyOwner {
-        OrderDetail2.GetRewardBlockNum = _blockNum;
-    }
-
-    function setMaxIgoNum(uint256 _maxIgoAmount) public onlyOwner {
-        OrderDetail2.maxIgoAmount = _maxIgoAmount;
-    }
-
-    function igo(uint256 idoNum) public nonReentrant {
-        require(block.number >= OrderDetail1.startBlock && block.number <= OrderDetail1.endBlock, "e008");
-        require(OrderDetail1.hasigoAmount.add(idoNum) <= OrderDetail1.igoAmount, "e009");
-        if (OrderDetail2.maxIgoAmount > 0) {
-            require(UserIgoTokenIdListNum[msg.sender] + idoNum <= OrderDetail2.maxIgoAmount, "e031");
+    function addWhiteList(address[] memory _addressList) public onlyOwner {
+        require(fk2.useWhiteList == true, "e02");
+        for (uint256 i = 0; i < _addressList.length; i++) {
+            require(_addressList[i] != address(0), "e03");
+            whiteList[_addressList[i]] = true;
         }
-        uint256 allAmount = (OrderDetail1.price).mul(idoNum);
-        require(OrderDetail1.orderStatus == true, "e010");
-        require(IERC20(OrderDetail1.erc20Token).balanceOf(msg.sender) >= allAmount, "e011");
-        uint256 fee = allAmount.mul(OrderDetail2.swapFee).div(100);
-        uint256 toUser = allAmount.sub(fee);
-        IERC20(OrderDetail1.erc20Token).safeTransferFrom(msg.sender, address(this), toUser);
-        IERC20(OrderDetail1.erc20Token).safeTransferFrom(msg.sender, devAddress, fee);
+    }
+
+    function enableIgo() public onlyOwner {
+        require(fk1.orderStatus == false, "e04");
+        fk1.orderStatus = true;
+    }
+
+    function disableIgo() public onlyOwner {
+        require(fk1.orderStatus == true, "e05");
+        fk1.orderStatus = false;
+    }
+
+    function setIgo(address payable _feeAddress, address payable _teamAddress, uint256 _fee, IERC721Enumerable _CosoNft) public onlyIGOPoolFactory onlyBeforeStartBlock {
+        feeAddress = _feeAddress;
+        teamAddress = _teamAddress;
+        fk2.swapFee = _fee;
+        fk2.CosoNFT = _CosoNft;
+    }
+
+    function setTaskType(uint256 _igoMaxAmount, bool _useWhiteList, bool _useStakingCoso, uint256 _CosoQuote) public onlyOwner onlyBeforeStartBlock {
+        fk2.igoMaxAmount = _igoMaxAmount;
+        fk2.useWhiteList = _useWhiteList;
+        fk2.useStakingCoso = _useStakingCoso;
+        fk1.cosoQuote = _CosoQuote;
+    }
+
+    function setSwapTokenPrice(IERC20 _swapToken, uint256 _swapPrice) public onlyOwner {
+        require(block.number <= fk1.endBlock || address(fk2.swapToken) == address(0), "e06");
+        fk2.swapToken = _swapToken;
+        fk2.swapPrice = _swapPrice;
+    }
+
+    function setTimeLines(uint256 _startBlock, uint256 _endBlock, uint256 _buyBackEndBlock) public onlyOwner {
+        require(_buyBackEndBlock > _endBlock && _endBlock > _startBlock, "e07");
+        fk1.startBlock = _startBlock;
+        fk1.endBlock = _endBlock;
+        fk2.buyBackEndBlock = _buyBackEndBlock;
+    }
+
+    function stakingCoso(uint256[] memory _tokenIdList) public {
+        require(fk2.useStakingCoso == true, "e08");
+        require(block.number < fk1.startBlock, "e09");
+        if (fk2.igoMaxAmount > 0) {
+            require(userStakingNumList[msg.sender].add(_tokenIdList.length.mul(fk1.cosoQuote)) <= fk2.igoMaxAmount, "e10");
+        }
+        for (uint i = 0; i < _tokenIdList.length; i++) {
+            fk2.CosoNFT.transferFrom(msg.sender, address(this), _tokenIdList[i]);
+            userStakingTokenIdList[msg.sender].push(_tokenIdList[i]);
+        }
+        userStakingNumList[msg.sender] = userStakingNumList[msg.sender].add(_tokenIdList.length.mul(fk1.cosoQuote));
+    }
+
+    function withdrawCoso() public {
+        require(block.number > fk1.endBlock, "e11");
+        uint256[] memory userCosoList = userStakingTokenIdList[msg.sender];
+        require(userCosoList.length > 0, "e12");
+        for (uint i = 0; i < userCosoList.length; i++) {
+            fk2.CosoNFT.transferFrom(address(this), msg.sender, userCosoList[i]);
+        }
+        delete userStakingTokenIdList[msg.sender];
+        delete userStakingNumList[msg.sender];
+    }
+
+    function igo(uint256 idoNum) public payable nonReentrant {
+        require(idoNum > 0, "e13");
+        require(fk1.nftToken.MinerList(address(this)) == true, "e14");
+        require(fk1.orderStatus == true, "e15");
+        require(block.number >= fk1.startBlock && block.number <= fk1.endBlock, "e16");
+        require(fk1.igoOkAmount.add(idoNum) <= fk1.igoTotalAmount, "e17");
+        if (fk2.igoMaxAmount > 0) {
+            require(UserIgoTokenIdListNum[msg.sender].add(idoNum) <= fk2.igoMaxAmount, "e18");
+        }
+        if (fk2.useStakingCoso == true) {
+            require(idoNum <= userStakingNumList[msg.sender], "e19");
+        }
+        if (fk2.useWhiteList == true) {
+            require(whiteList[msg.sender] == true, "e20");
+        }
+        uint256 allAmount = (fk1.price).mul(idoNum);
+        uint256 fee = allAmount.mul(fk2.swapFee).div(100);
+        uint256 toTeam = allAmount.sub(fee);
+        if (fk1.erc20Token == address(0)) {
+            require(msg.value == allAmount, "e21");
+            teamAddress.transfer(toTeam);
+            feeAddress.transfer(fee);
+        } else {
+            require(IERC20(fk1.erc20Token).balanceOf(msg.sender) >= allAmount, "e22");
+            IERC20(fk1.erc20Token).safeTransferFrom(msg.sender, teamAddress, toTeam);
+            IERC20(fk1.erc20Token).safeTransferFrom(msg.sender, feeAddress, fee);
+        }
         for (uint256 i = 0; i < idoNum; i++) {
-            (,uint256 _token_id) = OrderDetail1.nftToken.mintForMiner(msg.sender);
-            // TokenIdMintStatusList[_token_id] = true;
+            (,uint256 _token_id) = fk1.nftToken.mintForMiner(msg.sender);
             TokenIdSwapStatusStatusList[_token_id].mintStatus = true;
             CanBuyBackList[msg.sender][_token_id] = true;
             UserIgoTokenIdList[msg.sender].push(_token_id);
-            OrderDetail1.hasigoAmount = OrderDetail1.hasigoAmount.add(1);
+            fk1.igoOkAmount = fk1.igoOkAmount.add(1);
             UserIgoTokenIdListNum[msg.sender] = UserIgoTokenIdListNum[msg.sender].add(1);
+            if (fk2.useStakingCoso == true) {
+                userStakingNumList[msg.sender] = userStakingNumList[msg.sender].sub(1);
+            }
         }
     }
 
-    function igoWithEth(uint256 idoNum) public payable nonReentrant {
-        require(block.number >= OrderDetail1.startBlock && block.number <= OrderDetail1.endBlock, "e012");
-        require(OrderDetail1.hasigoAmount.add(idoNum) <= OrderDetail1.igoAmount, "e013");
-        if (OrderDetail2.maxIgoAmount > 0) {
-            require(UserIgoTokenIdListNum[msg.sender] + idoNum <= OrderDetail2.maxIgoAmount, "e032");
-        }
-        uint256 allAmount = (OrderDetail1.price).mul(idoNum);
-        require(OrderDetail1.orderStatus == true, "e014");
-        require(msg.value >= allAmount, "e015");
-        uint256 fee = allAmount.mul(OrderDetail2.swapFee).div(100);
-        uint256 toUser = allAmount.sub(fee);
-        payable(address(this)).transfer(toUser);
-        devAddress.transfer(fee);
-        for (uint256 i = 0; i < idoNum; i++) {
-            (,uint256 _token_id) = OrderDetail1.nftToken.mintForMiner(msg.sender);
-            // TokenIdMintStatusList[_token_id] = true;
-            TokenIdSwapStatusStatusList[_token_id].mintStatus = true;
-            CanBuyBackList[msg.sender][_token_id] = true;
-            UserIgoTokenIdList[msg.sender].push(_token_id);
-            OrderDetail1.hasigoAmount = OrderDetail1.hasigoAmount.add(1);
-            UserIgoTokenIdListNum[msg.sender] = UserIgoTokenIdListNum[msg.sender].add(1);
-        }
-    }
-
-    function getWrongTokens(IERC20 _token) public onlyOwner {
-        uint256 amount = _token.balanceOf(address(this));
-        require(amount > 0, "e016");
-        _token.safeTransfer(msg.sender, amount);
-    }
-
-    function swapToken(uint256 _tokenId) public {
-        uint256 allAmount = OrderDetail2.swapPrice;
-        uint256 fee = allAmount.mul(OrderDetail2.swapFee).div(100);
-        uint256 toUser = allAmount.sub(fee);
-        OrderDetail1.nftToken.transferFrom(msg.sender, OrderDetail1.owner, _tokenId);
+    function swapToken(uint256 _tokenId) public nonReentrant {
+        require(block.number > fk1.endBlock, "e23");
+        require(address(fk2.swapToken) != address(0), "e24");
+        uint256 allAmount = fk2.swapPrice;
+        fk1.nftToken.transferFrom(msg.sender, fk2.blackHoleAddress, _tokenId);
         if (CanBuyBackList[msg.sender][_tokenId] == true) {
             CanBuyBackList[msg.sender][_tokenId] == false;
-            OrderDetail2.BuyBackNum = OrderDetail2.BuyBackNum.add(1);
+            fk2.buyBackNum = fk2.buyBackNum.add(1);
         }
-        //TokenIdStatusList[_tokenId].swapStatus = true;
-        // TokenIdSwapStatusStatusList[_tokenId] = true;
         TokenIdSwapStatusStatusList[_tokenId].swapStatus = true;
-        OrderDetail2.swapToken.safeTransfer(msg.sender, toUser);
-        OrderDetail2.swapToken.safeTransfer(devAddress, fee);
+        require(fk2.swapToken.balanceOf(address(this)) >= allAmount, "e25");
+        fk2.swapToken.safeTransfer(msg.sender, allAmount);
     }
 
-    function buyback(uint256[] memory _tokenIdList) public {
-        require(block.number < OrderDetail2.GetRewardBlockNum, "e017");
+    function buyback(uint256[] memory _tokenIdList) public nonReentrant {
+        require(block.number > fk1.endBlock && block.number < fk2.buyBackEndBlock, "e26");
         uint256 buybackNum = _tokenIdList.length;
-        uint256 leftrate = uint256(100).sub(OrderDetail2.swapFee);
-        uint256 allAmount = (OrderDetail1.price).mul(leftrate).mul(buybackNum).div(100);
-        uint256 fee = allAmount.mul(OrderDetail2.swapFee).div(100);
-        uint256 toUser = allAmount.sub(fee);
+        uint256 leftrate = uint256(100).sub(fk2.swapFee);
+        uint256 allAmount = (fk1.price).mul(leftrate).mul(buybackNum).div(100);
         for (uint256 i = 0; i < _tokenIdList.length; i++) {
-            require(CanBuyBackList[msg.sender][_tokenIdList[i]] == true, "e018");
+            require(CanBuyBackList[msg.sender][_tokenIdList[i]] == true, "e27");
         }
         for (uint256 i = 0; i < _tokenIdList.length; i++) {
-            OrderDetail1.nftToken.transferFrom(msg.sender, OrderDetail1.owner, _tokenIdList[i]);
+            fk1.nftToken.transferFrom(msg.sender, fk2.blackHoleAddress, _tokenIdList[i]);
             CanBuyBackList[msg.sender][_tokenIdList[i]] = false;
-            OrderDetail2.BuyBackNum = OrderDetail2.BuyBackNum.add(1);
-            //TokenIdStatusList[_tokenIdList[i]].buybackStatus = true;
-            // TokenIdBuybackStatusList[_tokenIdList[i]] = true;
+            fk2.buyBackNum = fk2.buyBackNum.add(1);
             TokenIdSwapStatusStatusList[_tokenIdList[i]].buybackStatus = true;
         }
-        if (OrderDetail1.erc20Token != address(0)) {
-            IERC20(OrderDetail1.erc20Token).safeTransfer(msg.sender, toUser);
-            IERC20(OrderDetail1.erc20Token).safeTransfer(devAddress, fee);
+        if (fk1.erc20Token != address(0)) {
+            IERC20(fk1.erc20Token).safeTransfer(msg.sender, allAmount);
         } else {
-            msg.sender.transfer(toUser);
-            devAddress.transfer(fee);
+            msg.sender.transfer(allAmount);
         }
     }
 
-    function getReward() public {
-        require(block.number > OrderDetail2.GetRewardBlockNum, "e019");
-        require(OrderDetail1.owner == msg.sender, "e020");
-        uint256 leftrate = uint256(100).sub(OrderDetail2.swapFee);
-        uint256 rewardNum = OrderDetail1.hasigoAmount.sub(OrderDetail2.BuyBackNum);
-        require(rewardNum > 0, "e021");
-        uint256 allAmount = (OrderDetail1.price).mul(leftrate).mul(rewardNum).div(100);
-        require(allAmount > 0, "e022");
-        uint256 fee = allAmount.mul(OrderDetail2.swapFee).div(100);
-        uint256 toUser = allAmount.sub(fee);
-        if (OrderDetail1.erc20Token != address(0)) {
-            IERC20(OrderDetail1.erc20Token).safeTransfer(msg.sender, toUser);
-            IERC20(OrderDetail1.erc20Token).safeTransfer(devAddress, fee);
+    function takeTokens(address _token, uint256 _amount) public onlyOwner returns (bool){
+        if (_token == address(0) && address(this).balance > 0) {
+            msg.sender.transfer(address(this).balance);
+            return true;
+        } else if (_token != address(0) && IERC20(_token).balanceOf(address(this)) > 0) {
+            IERC20(_token).safeTransfer(msg.sender, _amount);
+            return true;
         } else {
-            msg.sender.transfer(toUser);
-            devAddress.transfer(fee);
+            return false;
         }
     }
 
-    function cleanEth() public onlyOwner {
-        msg.sender.transfer(address(this).balance);
+    function getTimeStatus(uint256 _time) public view returns (bool canStaking, bool canIgo, bool canBuyBack, bool canWithDraw, bool canSwapToken) {
+        if (_time < fk1.startBlock) {
+            return (true, false, false, false, false);
+        } else if (fk1.startBlock <= _time && _time <= fk1.endBlock) {
+            return (false, true, false, false, false);
+        } else if (fk1.endBlock < _time && _time <= fk2.buyBackEndBlock) {
+            return (false, false, true, true, true);
+        } else if (_time > fk2.buyBackEndBlock) {
+            return (false, false, false, true, true);
+        }
     }
 
     function getTokenInfoByIndex() public view returns (orderItem_1 memory orderItem1, orderItem_2 memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2, string memory nftName, string memory nftSymbol){
-        orderItem1 = OrderDetail1;
-        orderItem2 = OrderDetail2;
+        orderItem1 = fk1;
+        orderItem2 = fk2;
         if (orderItem1.erc20Token == address(0)) {
-            name2 = ETH.name();
-            symbol2 = ETH.symbol();
-            decimals2 = ETH.decimals();
+            name2 = fk2.ETH.name();
+            symbol2 = fk2.ETH.symbol();
+            decimals2 = fk2.ETH.decimals();
         } else {
             name2 = IERC20(orderItem1.erc20Token).name();
             symbol2 = IERC20(orderItem1.erc20Token).symbol();
@@ -403,14 +443,6 @@ contract IGOPool is Ownable, ReentrancyGuard {
         return UserIgoTokenIdList[_address];
     }
 
-    struct nftInfo {
-        string name;
-        string symbol;
-        string tokenURI;
-        address ownerOf;
-        tokenIdInfo statusList;
-    }
-
     function getNftInfo(IERC721Enumerable _nftToken, uint256 _tokenId) public view returns (nftInfo memory nftInfo2) {
         nftInfo2 = nftInfo(_nftToken.name(), _nftToken.symbol(), _nftToken.tokenURI(_tokenId), _nftToken.ownerOf(_tokenId), TokenIdSwapStatusStatusList[_tokenId]);
     }
@@ -422,84 +454,32 @@ contract IGOPool is Ownable, ReentrancyGuard {
         }
     }
 
+    function getStaking(address _user) public view returns (uint256[] memory idTokenList, uint256 idTokenListNum, nftInfo[] memory nftInfolist2, uint256 igoQuota, uint256 maxIgoNum) {
+        idTokenList = userStakingTokenIdList[_user];
+        idTokenListNum = idTokenList.length;
+        nftInfolist2 = massGetNftInfo(fk2.CosoNFT, idTokenList);
+        igoQuota = userStakingNumList[_user];
+        maxIgoNum = fk2.igoMaxAmount;
+    }
+
     receive() payable external {}
 }
 
-contract IGOPoolFactory is Ownable, ReentrancyGuard {
+contract IGOPoolFactory is Ownable {
     using SafeMath for uint256;
     using Address for address;
     using SafeERC20 for IERC20;
-    mapping(uint256 => IGOPool) public orderItemInfo;
-    IERC20 public ETH;
-    address public devAddress;
-    mapping(IERC721Enumerable => uint256[]) public nftAddressOrderList;
-    mapping(uint256 => bool) public orderStatusList;
-    mapping(address => uint256[]) public userOrderList;
-    mapping(string => bool) public orderMd5StatusList;
     uint256 public orderNum = 0;
+    uint256 public swapRate = 10;
+    address public feeAddress;
+    IERC20 public ETH;
+    IERC721Enumerable public CosoNFT;
+    mapping(uint256 => IGOPool) public orderItemInfo;
+    mapping(IGOPool => uint256) public orderItemInfo2;
+    mapping(IERC721Enumerable => uint256[]) public nftAddressOrderIdList;
+    mapping(IERC721Enumerable => IGOPool[]) public nftAddressPoolList;
     mapping(address => bool) public erc20tokenWhiteList;
     mapping(address => bool) public igoWhiteList;
-
-    event createIgoEvent(address _devAddress, address _owner, IERC20 _ETH, uint256 _orderId, IERC721Enumerable _nftToken, uint256 _igoAmount, address _erc20Token, uint256 _price, string _orderMd5, uint256 _startBlock, uint256 _endBlock);
-    event createIgoEvent2(IGOPool igoItem);
-    constructor(IERC20 _ETH, address _devAddress) public {
-        ETH = _ETH;
-        devAddress = _devAddress;
-        addIgoWhiteList(msg.sender);
-        addErc20tokenWhiteList(address(0));
-    }
-
-    function addErc20tokenWhiteList(address _addreess) public onlyOwner {
-        erc20tokenWhiteList[_addreess] = true;
-    }
-
-    function removeErc20tokenWhiteList(address _addreess) public onlyOwner {
-        erc20tokenWhiteList[_addreess] = false;
-    }
-
-    function addIgoWhiteList(address _addreess) public onlyOwner {
-        igoWhiteList[_addreess] = true;
-    }
-
-    function removeIgoWhiteList(address _addreess) public onlyOwner {
-        igoWhiteList[_addreess] = false;
-    }
-
-    function createIGO(IERC721Enumerable _nftToken, uint256 _igoAmount, address _erc20Token, uint256 _price, string memory _orderMd5, uint256 _startBlock, uint256 _endBlock) public {
-        require(igoWhiteList[msg.sender] == true, "e002");
-        require(orderMd5StatusList[_orderMd5] == false, "e003");
-        require(erc20tokenWhiteList[_erc20Token] == true, "e004");
-        IGOPool igoitem = new IGOPool(devAddress, msg.sender, ETH, orderNum, _nftToken, _igoAmount, _erc20Token, _price, _orderMd5, _startBlock, _endBlock);
-        emit createIgoEvent(devAddress, msg.sender, ETH, orderNum, _nftToken, _igoAmount, _erc20Token, _price, _orderMd5, _startBlock, _endBlock);
-        emit createIgoEvent2(igoitem);
-        orderItemInfo[orderNum] = igoitem;
-        nftAddressOrderList[_nftToken].push(orderNum);
-        orderStatusList[orderNum] = true;
-        userOrderList[msg.sender].push(orderNum);
-        orderNum = orderNum.add(1);
-        orderMd5StatusList[_orderMd5] = true;
-        igoitem.transferOwnership(msg.sender);
-    }
-
-    function setDevAddress(IGOPool _igoItem, address payable _devAddress) public onlyOwner {
-        _igoItem.setDevAddress(_devAddress);
-    }
-
-    function setSwapFee(IGOPool _igoItem, uint256 _fee) public onlyOwner {
-        _igoItem.setSwapFee(_fee);
-    }
-
-    function massSetSwapFee(uint256[] memory _igoItem_list, uint256 _fee) public onlyOwner {
-        for (uint256 i = 0; i < _igoItem_list.length; i++) {
-            orderItemInfo[i].setSwapFee(_fee);
-        }
-    }
-
-    function massSetDevAddress(uint256[] memory _igoItem_list, address payable _devAddress) public onlyOwner {
-        for (uint256 i = 0; i < _igoItem_list.length; i++) {
-            orderItemInfo[i].setDevAddress(_devAddress);
-        }
-    }
 
     struct tokenIdInfo {
         uint256 poolId;
@@ -512,45 +492,31 @@ contract IGOPoolFactory is Ownable, ReentrancyGuard {
         tokenIdInfo[] tokenIdInfoListItem;
     }
 
-    function getTokenIdStatusList(IERC721Enumerable _nftToken, uint256 _tokenId) public view returns (tokenIdInfo[] memory) {
-        uint256[] memory index_list = nftAddressOrderList[_nftToken];
-        tokenIdInfo[] memory x = new tokenIdInfo[](index_list.length);
-        for (uint256 i = 0; i < index_list.length; i++) {
-            (bool mintStatus,bool buybackStatus,bool swapStatus) = orderItemInfo[index_list[i]].TokenIdSwapStatusStatusList(_tokenId);
-            x[i] = tokenIdInfo(index_list[i], mintStatus, buybackStatus, swapStatus);
-        }
-        return x;
-    }
-
-    function massGetTokenIdStatusList(IERC721Enumerable _nftToken, uint256[] memory _tokenIdList) public view returns (tokenIdInfoList[] memory x) {
-        x = new tokenIdInfoList[](_tokenIdList.length);
-        for (uint256 i = 0; i < _tokenIdList.length; i++) {
-            x[i] = tokenIdInfoList(getTokenIdStatusList(_nftToken, _tokenIdList[i]));
-        }
-        return x;
-    }
-
     struct orderItem_1 {
         uint256 orderId;
-        address payable owner;
         IERC721Enumerable nftToken;
-        uint256 igoAmount;
+        uint256 igoTotalAmount;
         address erc20Token;
         uint256 price;
         bool orderStatus;
-        string orderMd5;
-        uint256 hasigoAmount;
+        uint256 igoOkAmount;
         uint256 startBlock;
         uint256 endBlock;
+        uint256 cosoQuote;
     }
 
     struct orderItem_2 {
         IERC20 swapToken;
         uint256 swapPrice;
-        uint256 GetRewardBlockNum;
-        uint256 BuyBackNum;
+        uint256 buyBackEndBlock;
+        uint256 buyBackNum;
         uint256 swapFee;
-        uint256 maxIgoAmount;
+        uint256 igoMaxAmount;
+        address blackHoleAddress;
+        IERC721Enumerable CosoNFT;
+        bool useStakingCoso;
+        bool useWhiteList;
+        IERC20 ETH;
     }
 
     struct orderItem_3 {
@@ -565,21 +531,94 @@ contract IGOPoolFactory is Ownable, ReentrancyGuard {
         IGOPool igoAddress;
     }
 
-    function get(uint256 _index) public view returns (orderItem_3 memory returnIgoInfo) {
+    event createIgoEvent(IGOPool _igoAddress, IERC721Enumerable _Coso, address _feeAddress, address _teamAddress, IERC20 _ETH, uint256 _orderId, IERC721Enumerable _nftToken, uint256 _igoTotalAmount, address _erc20Token, uint256 _price, uint256 _swapRate);
+
+    constructor(IERC721Enumerable _CosoNft, IERC20 _ETH, address _feeAddress) public {
+        require(address(_CosoNft) != address(0) && address(_ETH) != address(0) && _feeAddress != address(0), "e01");
+        CosoNFT = _CosoNft;
+        ETH = _ETH;
+        feeAddress = _feeAddress;
+        addIgoWhiteList(msg.sender);
+        addErc20tokenWhiteList(address(0));
+    }
+
+    function addErc20tokenWhiteList(address _addreess) public onlyOwner {
+        erc20tokenWhiteList[_addreess] = true;
+    }
+
+    function removeErc20tokenWhiteList(address _addreess) public onlyOwner {
+        erc20tokenWhiteList[_addreess] = false;
+    }
+
+    function addIgoWhiteList(address _addreess) public onlyOwner {
+        require(_addreess != address(0), "e02");
+        igoWhiteList[_addreess] = true;
+    }
+
+    function removeIgoWhiteList(address _addreess) public onlyOwner {
+        require(_addreess != address(0), "e03");
+        igoWhiteList[_addreess] = false;
+    }
+
+    function setFeeAddress(address _FeeAddress, uint256 _swapRate) public onlyOwner {
+        require(_FeeAddress != address(0), "e04");
+        feeAddress = _FeeAddress;
+        swapRate = _swapRate;
+    }
+
+    function createIGO(address _teamAddress, IERC721Enumerable _nftToken, uint256 _igoTotalAmount, address _erc20Token, uint256 _price) public {
+        require(igoWhiteList[msg.sender] == true, "e05");
+        require(erc20tokenWhiteList[_erc20Token] == true, "e06");
+        IGOPool igoitem = new IGOPool(CosoNFT, feeAddress, _teamAddress, ETH, orderNum, _nftToken, _igoTotalAmount, _erc20Token, _price, swapRate);
+        emit createIgoEvent(igoitem, CosoNFT, feeAddress, _teamAddress, ETH, orderNum, _nftToken, _igoTotalAmount, _erc20Token, _price, swapRate);
+        orderItemInfo[orderNum] = igoitem;
+        orderItemInfo2[igoitem] = orderNum;
+        nftAddressOrderIdList[_nftToken].push(orderNum);
+        nftAddressPoolList[_nftToken].push(igoitem);
+        orderNum = orderNum.add(1);
+        igoitem.transferOwnership(msg.sender);
+    }
+
+    function setIgo(IGOPool _igo, address payable _feeAddress, address payable _teamAddress, uint256 _fee, IERC721Enumerable _CosoNft) public onlyOwner {
+        _igo.setIgo(_feeAddress, _teamAddress, _fee, _CosoNft);
+    }
+
+    function takeErc20Token(IERC20 _token) public onlyOwner {
+        uint256 amount = _token.balanceOf(address(this));
+        require(amount > 0, "e07");
+        _token.safeTransfer(msg.sender, amount);
+    }
+
+    function getTokenIdStatusList(IERC721Enumerable _nftToken, uint256 _tokenId) public view returns (tokenIdInfo[] memory x) {
+        uint256[] memory index_list = nftAddressOrderIdList[_nftToken];
+        x = new tokenIdInfo[](index_list.length);
+        for (uint256 i = 0; i < index_list.length; i++) {
+            (bool mintStatus,bool buybackStatus,bool swapStatus) = orderItemInfo[index_list[i]].TokenIdSwapStatusStatusList(_tokenId);
+            x[i] = tokenIdInfo(index_list[i], mintStatus, buybackStatus, swapStatus);
+        }
+    }
+
+    function massGetTokenIdStatusList(IERC721Enumerable _nftToken, uint256[] memory _tokenIdList) public view returns (tokenIdInfoList[] memory x) {
+        x = new tokenIdInfoList[](_tokenIdList.length);
+        for (uint256 i = 0; i < _tokenIdList.length; i++) {
+            x[i] = tokenIdInfoList(getTokenIdStatusList(_nftToken, _tokenIdList[i]));
+        }
+        return x;
+    }
+
+    function getIgoInfo(uint256 _index) public view returns (orderItem_3 memory returnIgoInfo) {
         returnIgoInfo.igoAddress = orderItemInfo[_index];
         {
             (uint256 orderId,
-            address payable owner,
             IERC721Enumerable nftToken,
             uint256 igoAmount,
             address erc20Token,
             uint256 price,
             bool orderStatus,
-            string memory orderMd5,
             uint256 hasigoAmount,
             uint256 startBlock,
-            uint256 endBlock) = orderItemInfo[_index].OrderDetail1();
-            returnIgoInfo.x1 = orderItem_1(orderId, owner, nftToken, igoAmount, erc20Token, price, orderStatus, orderMd5, hasigoAmount, startBlock, endBlock);
+            uint256 endBlock,uint256 cosoQuote) = orderItemInfo[_index].fk1();
+            returnIgoInfo.x1 = orderItem_1(orderId, nftToken, igoAmount, erc20Token, price, orderStatus, hasigoAmount, startBlock, endBlock, cosoQuote);
         }
         {
             (IERC20 swapToken,
@@ -587,8 +626,9 @@ contract IGOPoolFactory is Ownable, ReentrancyGuard {
             uint256 GetRewardBlockNum,
             uint256 BuyBackNum,
             uint256 swapFee,
-            uint256 maxIgoAmount) = orderItemInfo[_index].OrderDetail2();
-            returnIgoInfo.x2 = orderItem_2(swapToken, swapPrice, GetRewardBlockNum, BuyBackNum, swapFee, maxIgoAmount);
+            uint256 maxIgoAmount,address blackholeaddress,IERC721Enumerable CosoNFT2, bool useStakingCoso,
+            bool useWhiteList, IERC20 ETH2) = orderItemInfo[_index].fk2();
+            returnIgoInfo.x2 = orderItem_2(swapToken, swapPrice, GetRewardBlockNum, BuyBackNum, swapFee, maxIgoAmount, blackholeaddress, CosoNFT2, useStakingCoso, useWhiteList, ETH2);
         }
         {
             (,,string memory name2, string memory symbol2, uint256 decimals2, uint256 price2,string memory nftName,string memory nftSymbol) = orderItemInfo[_index].getTokenInfoByIndex();
@@ -601,22 +641,19 @@ contract IGOPoolFactory is Ownable, ReentrancyGuard {
         }
     }
 
-    function mass_get(uint256[] memory index_list) public view returns (orderItem_3[] memory returnIgoInfoList) {
+    function massGetIgoInfo(uint256[] memory index_list) public view returns (orderItem_3[] memory returnIgoInfoList) {
         returnIgoInfoList = new orderItem_3[](index_list.length);
         for (uint256 i = 0; i < index_list.length; i++) {
-            returnIgoInfoList[i] = get(index_list[i]);
+            returnIgoInfoList[i] = getIgoInfo(index_list[i]);
         }
     }
 
-    function getWrongTokens(IERC20 _token) public onlyOwner {
-        uint256 amount = _token.balanceOf(address(this));
-        require(amount > 0, "e016");
-        _token.safeTransfer(msg.sender, amount);
+    function getNftAddressPoolList(IERC721Enumerable _nftToken) public view returns (IGOPool[] memory IGOPoolList, orderItem_3[] memory returnIgoInfoList) {
+        IGOPoolList = nftAddressPoolList[_nftToken];
+        uint256[] memory indexList = new uint256[](IGOPoolList.length);
+        for (uint256 i = 0; i < IGOPoolList.length; i++) {
+            indexList[i] = orderItemInfo2[IGOPoolList[i]];
+        }
+        returnIgoInfoList = massGetIgoInfo(indexList);
     }
-
-    function cleanEth() public onlyOwner {
-        msg.sender.transfer(address(this).balance);
-    }
-
-    receive() payable external {}
 }
