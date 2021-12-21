@@ -1,4 +1,4 @@
-pragma solidity ^0.6.12;
+pragma solidity=0.6.12;
 pragma experimental ABIEncoderV2;
 // SPDX-License-Identifier: MIT
 
@@ -29,9 +29,9 @@ library SafeERC20 {
     }
 
     function _callOptionalReturn(IERC20 token, bytes memory data) private {
-        bytes memory returndata = address(token).functionCall(data, "e0");
+        bytes memory returndata = address(token).functionCall(data, "s0");
         if (returndata.length > 0) {
-            require(abi.decode(returndata, (bool)), "e1");
+            require(abi.decode(returndata, (bool)), "s1");
         }
     }
 }
@@ -52,7 +52,7 @@ abstract contract ReentrancyGuard {
     }
 
     modifier nonReentrant() {
-        require(_status != _ENTERED, "e0");
+        require(_status != _ENTERED, "r0");
         _status = _ENTERED;
         _;
         _status = _NOT_ENTERED;
@@ -75,12 +75,12 @@ contract Ownable is Context {
     }
 
     modifier onlyOwner() {
-        require(_owner == _msgSender(), "Ow1");
+        require(_owner == _msgSender(), "o0");
         _;
     }
 
     function transferOwnership(address newOwner) public virtual onlyOwner {
-        require(newOwner != address(0), "Ow2");
+        require(newOwner != address(0), "o1");
         emit OwnershipTransferred(_owner, newOwner);
         _owner = newOwner;
     }
@@ -100,7 +100,7 @@ library Address {
     }
 
     function _functionCallWithValue(address target, bytes memory data, uint256 weiValue, string memory errorMessage) private returns (bytes memory) {
-        require(isContract(target), "e0");
+        require(isContract(target), "t0");
         (bool success, bytes memory returndata) = target.call{value : weiValue}(data);
         if (success) {
             return returndata;
@@ -219,7 +219,7 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
     }
     
     function createNftOrder(IERC721Enumerable _nftToken, uint256 _tokenId, address _erc20Token, uint256 _price, string memory _orderMd5, uint256 _time) external nonReentrant {
-        require(orderMd5StatusList[_orderMd5] == false, "e04");
+        require(!orderMd5StatusList[_orderMd5], "e04");
         _nftToken.transferFrom(msg.sender, address(this), _tokenId);
         orderItemInfo[orderNum] = orderItem(orderNum, msg.sender, _nftToken, _tokenId, _erc20Token, _price, true, _orderMd5, _time, block.number, _nftToken.name(), _nftToken.symbol(), _nftToken.tokenURI(_tokenId));
         emit createNftOrderEvent(orderNum, msg.sender, _nftToken, _tokenId, _erc20Token, _price, true, _orderMd5, _time, block.number);
@@ -233,7 +233,7 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
     }
 
     function createNftOrderWithEth(IERC721Enumerable _nftToken, uint256 _tokenId, uint256 _price, string memory _orderMd5, uint256 _time) external nonReentrant {
-        require(orderMd5StatusList[_orderMd5] == false, "e05");
+        require(!orderMd5StatusList[_orderMd5], "e05");
         _nftToken.transferFrom(msg.sender, address(this), _tokenId);
         orderItemInfo[orderNum] = orderItem(orderNum, msg.sender, _nftToken, _tokenId, address(0), _price, true, _orderMd5, _time, block.number, _nftToken.name(), _nftToken.symbol(), _nftToken.tokenURI(_tokenId));
         emit createNftOrderEvent(orderNum, msg.sender, _nftToken, _tokenId, address(0), _price, true, _orderMd5, _time, block.number);
@@ -246,8 +246,8 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
         orderMd5StatusList[_orderMd5] = true;
     }
 
-    function widthDraw(uint256 _orderId) external nonReentrant {
-        require(orderStatusList[_orderId] == true, "e06");
+    function withDraw(uint256 _orderId) external nonReentrant {
+        require(orderStatusList[_orderId], "e06");
         require(orderItemInfo[_orderId].owner == msg.sender, "e07");
         orderItemInfo[_orderId].nftToken.transferFrom(address(this), msg.sender, orderItemInfo[_orderId].tokenId);
         orderItemInfo[_orderId].orderStatus = false;
@@ -256,7 +256,7 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
     }
 
     function swap(uint256 _orderId) external nonReentrant {
-        require(orderStatusList[_orderId] == true, "e08");
+        require(orderStatusList[_orderId], "e08");
         require(IERC20(orderItemInfo[_orderId].erc20Token).balanceOf(msg.sender) >= orderItemInfo[_orderId].price, "e09");
         uint256 fee = orderItemInfo[_orderId].price.mul(swapFee).div(100);
         uint256 toUser = orderItemInfo[_orderId].price.sub(fee);
@@ -269,7 +269,7 @@ contract nftOrderPool is Ownable, ReentrancyGuard {
     }
 
     function swapWithEth(uint256 _orderId) external payable nonReentrant {
-        require(orderStatusList[_orderId] == true, "e10");
+        require(orderStatusList[_orderId], "e10");
         require(msg.value == orderItemInfo[_orderId].price, "e11");
         uint256 fee = orderItemInfo[_orderId].price.mul(swapFee).div(100);
         uint256 toUser = orderItemInfo[_orderId].price.sub(fee);
