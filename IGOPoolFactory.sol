@@ -254,60 +254,61 @@ contract IGOPool is Ownable, ReentrancyGuard {
         _;
     }
 
-    function addWhiteList(address[] memory _addressList) public onlyOwner {
-        require(fk2.useWhiteList, "e02");
+    function addWhiteList(address[] memory _addressList) external onlyOwner {
+        //require(fk2.useWhiteList, "e02");
         for (uint256 i = 0; i < _addressList.length; i++) {
             require(_addressList[i] != address(0), "e03");
             whiteList[_addressList[i]] = true;
         }
     }
 
-    function enableIgo() public onlyOwner {
+    function enableIgo() external onlyOwner {
         //require(!fk1.orderStatus, "e04");
         fk1.orderStatus = true;
     }
 
-    function disableIgo() public onlyOwner {
+    function disableIgo() external onlyOwner {
         //require(fk1.orderStatus, "e05");
         fk1.orderStatus = false;
     }
 
-    function setIgo(address payable _feeAddress, uint256 _fee, IERC721Enumerable _CosoNft) public onlyIGOPoolFactory onlyBeforeStartBlock {
+    function setIgo(address payable _feeAddress, uint256 _fee, IERC721Enumerable _CosoNft) external onlyIGOPoolFactory onlyBeforeStartBlock {
+        require(_feeAddress!=address(0) && _fee>0 && address(_CosoNft) != address(0));
         feeAddress = _feeAddress;
         fk2.swapFee = _fee;
         fk2.CosoNFT = _CosoNft;
     }
 
-    function setTeamAddress(address payable _teamAddress) public onlyOwner {
+    function setTeamAddress(address payable _teamAddress) external onlyOwner {
         require(_teamAddress != address(0), "e01");
         teamAddress = _teamAddress;
     }
 
-    function setIgoTotalAmount(uint256 _igoTotalAmount) public onlyOwner {
+    function setIgoTotalAmount(uint256 _igoTotalAmount) external onlyOwner {
         fk1.igoTotalAmount = _igoTotalAmount;
     }
 
-    function setTaskType(uint256 _igoMaxAmount, bool _useWhiteList, bool _useStakingCoso, uint256 _CosoQuote) public onlyOwner onlyBeforeStartBlock {
+    function setTaskType(uint256 _igoMaxAmount, bool _useWhiteList, bool _useStakingCoso, uint256 _CosoQuote) external onlyOwner onlyBeforeStartBlock {
         fk2.igoMaxAmount = _igoMaxAmount;
         fk2.useWhiteList = _useWhiteList;
         fk2.useStakingCoso = _useStakingCoso;
         fk1.cosoQuote = _CosoQuote;
     }
 
-    function setSwapTokenPrice(IERC20 _swapToken, uint256 _swapPrice) public onlyOwner {
+    function setSwapTokenPrice(IERC20 _swapToken, uint256 _swapPrice) external onlyOwner {
         require(block.number <= fk1.endBlock || address(fk2.swapToken) == address(0), "e06");
         fk2.swapToken = _swapToken;
         fk2.swapPrice = _swapPrice;
     }
 
-    function setTimeLines(uint256 _startBlock, uint256 _endBlock, uint256 _buyBackEndBlock) public onlyOwner {
+    function setTimeLines(uint256 _startBlock, uint256 _endBlock, uint256 _buyBackEndBlock) external onlyOwner {
         require(_buyBackEndBlock > _endBlock && _endBlock > _startBlock, "e07");
         fk1.startBlock = _startBlock;
         fk1.endBlock = _endBlock;
         fk2.buyBackEndBlock = _buyBackEndBlock;
     }
 
-    function stakingCoso(uint256[] memory _tokenIdList) public {
+    function stakingCoso(uint256[] memory _tokenIdList) external {
         require(fk2.useStakingCoso, "e08");
         require(block.number < fk1.startBlock, "e09");
         if (fk2.igoMaxAmount > 0) {
@@ -320,7 +321,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         userStakingNumList[msg.sender] = userStakingNumList[msg.sender].add(_tokenIdList.length.mul(fk1.cosoQuote));
     }
 
-    function withdrawCoso() public {
+    function withdrawCoso() external {
         require(block.number > fk1.endBlock, "e11");
         uint256[] memory userCosoList = userStakingTokenIdList[msg.sender];
         require(userCosoList.length > 0, "e12");
@@ -331,7 +332,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         delete userStakingNumList[msg.sender];
     }
 
-    function igo(uint256 idoNum) public payable nonReentrant {
+    function igo(uint256 idoNum) external payable nonReentrant {
         require(idoNum > 0, "e13");
         require(fk1.nftToken.MinerList(address(this)), "e14");
         require(fk1.orderStatus, "e15");
@@ -371,7 +372,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         }
     }
 
-    function swapToken(uint256 _tokenId) public nonReentrant {
+    function swapToken(uint256 _tokenId) external nonReentrant {
         require(block.number > fk1.startBlock, "e23");
         require(address(fk2.swapToken) != address(0), "e24");
         uint256 allAmount = fk2.swapPrice;
@@ -385,7 +386,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         fk2.swapToken.safeTransfer(msg.sender, allAmount);
     }
 
-    function buyback(uint256[] memory _tokenIdList) public nonReentrant {
+    function buyback(uint256[] memory _tokenIdList) external nonReentrant {
         require(block.number > fk1.endBlock && block.number < fk2.buyBackEndBlock, "e26");
         uint256 buybackNum = _tokenIdList.length;
         uint256 leftrate = uint256(100).sub(fk2.swapFee);
@@ -406,7 +407,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         }
     }
 
-    function takeTokens(address _token, uint256 _amount) public onlyOwner returns (bool){
+    function takeTokens(address _token, uint256 _amount) external onlyOwner returns (bool){
         if (_token == address(0) && address(this).balance > 0) {
             msg.sender.transfer(address(this).balance);
             return true;
@@ -418,7 +419,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         }
     }
 
-    function getTimeStatus(uint256 _time) public view returns (bool canStaking, bool canIgo, bool canBuyBack, bool canWithDraw, bool canSwapToken) {
+    function getTimeStatus(uint256 _time) external view returns (bool canStaking, bool canIgo, bool canBuyBack, bool canWithDraw, bool canSwapToken) {
         if (_time < fk1.startBlock) {
             return (true, false, false, false, false);
         } else if (fk1.startBlock <= _time && _time <= fk1.endBlock) {
@@ -430,7 +431,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         }
     }
 
-    function getTokenInfoByIndex() public view returns (orderItem_1 memory orderItem1, orderItem_2 memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2, string memory nftName, string memory nftSymbol){
+    function getTokenInfoByIndex() external view returns (orderItem_1 memory orderItem1, orderItem_2 memory orderItem2, string memory name2, string memory symbol2, uint256 decimals2, uint256 price2, string memory nftName, string memory nftSymbol){
         orderItem1 = fk1;
         orderItem2 = fk2;
         if (orderItem1.erc20Token == address(0)) {
@@ -447,7 +448,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         nftSymbol = orderItem1.nftToken.symbol();
     }
 
-    function getUserIdoTokenIdList(address _address) public view returns (uint256[] memory) {
+    function getUserIdoTokenIdList(address _address) external view returns (uint256[] memory) {
         return UserIgoTokenIdList[_address];
     }
 
@@ -462,7 +463,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
         }
     }
 
-    function getStaking(address _user) public view returns (uint256[] memory idTokenList, uint256 idTokenListNum, nftInfo[] memory nftInfolist2, uint256 igoQuota, uint256 maxIgoNum) {
+    function getStaking(address _user) external view returns (uint256[] memory idTokenList, uint256 idTokenListNum, nftInfo[] memory nftInfolist2, uint256 igoQuota, uint256 maxIgoNum) {
         idTokenList = userStakingTokenIdList[_user];
         idTokenListNum = idTokenList.length;
         nftInfolist2 = massGetNftInfo(fk2.CosoNFT, idTokenList);
