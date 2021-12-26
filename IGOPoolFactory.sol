@@ -273,7 +273,7 @@ contract IGOPool is Ownable, ReentrancyGuard {
     }
 
     function setIgo(address payable _feeAddress, uint256 _fee, IERC721Enumerable _CosoNft) external onlyIGOPoolFactory onlyBeforeStartBlock {
-        require(_feeAddress!=address(0) && _fee>0 && address(_CosoNft) != address(0));
+        require(_feeAddress!=address(0) && _fee>0 && _fee<=50 && address(_CosoNft) != address(0));
         feeAddress = _feeAddress;
         fk2.swapFee = _fee;
         fk2.CosoNFT = _CosoNft;
